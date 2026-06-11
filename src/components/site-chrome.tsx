@@ -77,7 +77,8 @@ export function Navbar() {
             {NAV.map((l) => (
               <Link key={l.label} to={l.to} className="text-base font-medium text-[#051A24]" onClick={() => setOpen(false)}>{l.label}</Link>
             ))}
-            <PrimaryBtn>Get Started</PrimaryBtn>
+            <Link to="/login" onClick={() => setOpen(false)} className="text-base font-medium text-[#051A24]">Sign in</Link>
+            <Link to="/signup" onClick={() => setOpen(false)}><PrimaryBtn className="w-full">Get Started</PrimaryBtn></Link>
           </aside>
         </div>
       )}
