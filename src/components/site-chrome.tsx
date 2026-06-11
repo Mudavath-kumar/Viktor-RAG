@@ -36,10 +36,11 @@ export const InvertedBtn = ({ children, className = "", ...props }: React.Button
 );
 
 const NAV = [
+  { label: "Features", to: "/features" as const },
+  { label: "Pricing", to: "/pricing" as const },
+  { label: "Docs", to: "/docs" as const },
   { label: "Dashboard", to: "/dashboard" as const },
-  { label: "Upload", to: "/upload" as const },
   { label: "Chat", to: "/chat" as const },
-  { label: "Analytics", to: "/analytics" as const },
 ];
 
 export function Navbar() {
