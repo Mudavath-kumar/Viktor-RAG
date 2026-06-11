@@ -3,7 +3,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Brain, Search, ShieldCheck, Quote, MessageSquare, Sparkles, TrendingUp,
   Star, ChevronLeft, ChevronRight, FileText, Image as ImageIcon, Code, Table,
-  ArrowUpRight, Check,
+  ArrowUpRight, Check, Upload, Cpu, Layers, Zap, Database, Network,
+  PlayCircle, Github, Slack, Globe, Box, GitBranch,
 } from "lucide-react";
 import { Navbar, Footer, PrimaryBtn, SecondaryBtn, InvertedBtn, SectionEyebrow } from "@/components/site-chrome";
 import heroBook from "@/assets/hero-book.jpg";
@@ -20,13 +21,13 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-function useInViewAnimation(threshold = 0.1) {
+function useInViewAnimation(threshold = 0.12) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   useEffect(() => {
     const obs = new IntersectionObserver(
       ([e]) => { if (e.isIntersecting) { setIsVisible(true); obs.disconnect(); } },
-      { threshold }
+      { threshold, rootMargin: "0px 0px -60px 0px" }
     );
     if (ref.current) obs.observe(ref.current);
     return () => obs.disconnect();
@@ -34,30 +35,66 @@ function useInViewAnimation(threshold = 0.1) {
   return { ref, isVisible };
 }
 
-function Reveal({ children, delay = 0, className = "" }: { children: ReactNode; delay?: number; className?: string }) {
+type AnimVariant = "up" | "left" | "right" | "blur" | "scale";
+const ANIM_CLASS: Record<AnimVariant, string> = {
+  up: "animate-fade-in-up",
+  left: "animate-slide-in-left",
+  right: "animate-slide-in-right",
+  blur: "animate-blur-up",
+  scale: "animate-scale-in",
+};
+
+function Reveal({ children, delay = 0, variant = "up", className = "" }: { children: ReactNode; delay?: number; variant?: AnimVariant; className?: string }) {
   const { ref, isVisible } = useInViewAnimation();
   return (
-    <div ref={ref} className={`${isVisible ? "animate-fade-in-up" : "opacity-0"} ${className}`} style={{ animationDelay: `${delay}s` }}>
+    <div ref={ref} className={`${isVisible ? ANIM_CLASS[variant] : "opacity-0"} ${className}`} style={{ animationDelay: `${delay}s` }}>
       {children}
     </div>
   );
 }
 
+/* Animated counter — eases up to target value when in view */
+function CountUp({ to, suffix = "", duration = 1600 }: { to: number; suffix?: string; duration?: number }) {
+  const { ref, isVisible } = useInViewAnimation();
+  const [val, setVal] = useState(0);
+  useEffect(() => {
+    if (!isVisible) return;
+    const start = performance.now();
+    let raf = 0;
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setVal(Math.round(to * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isVisible, to, duration]);
+  return <span ref={ref as React.RefObject<HTMLSpanElement>}>{val.toLocaleString()}{suffix}</span>;
+}
+
 function Index() {
   return (
-    <main className="min-h-screen bg-[#f0f0ee] text-[#051A24] antialiased">
+    <main className="min-h-screen bg-[#f0f0ee] text-[#051A24] antialiased overflow-x-hidden">
       <Navbar />
       <Hero />
+      <LogoMarquee />
+      <StatsBand />
       <Capabilities />
+      <HowItWorks />
+      <LiveDemo />
       <Testimonial />
-      <Pricing />
       <Architecture />
+      <Integrations />
+      <Pricing />
       <TestimonialCarousel />
+      <FAQ />
       <CTASection />
       <Footer />
     </main>
   );
 }
+
 
 /* ---------- Hero: editorial split ---------- */
 function Hero() {
