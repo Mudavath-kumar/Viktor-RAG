@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UploadRouteImport } from './routes/upload'
 import { Route as SignupRouteImport } from './routes/signup'
+import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as FeaturesRouteImport } from './routes/features'
 import { Route as DashboardRouteImport } from './routes/dashboard'
@@ -26,6 +27,11 @@ const UploadRoute = UploadRouteImport.update({
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PricingRoute = PricingRouteImport.update({
+  id: '/pricing',
+  path: '/pricing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -66,6 +72,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/features': typeof FeaturesRoute
   '/login': typeof LoginRoute
+  '/pricing': typeof PricingRoute
   '/signup': typeof SignupRoute
   '/upload': typeof UploadRoute
 }
@@ -76,6 +83,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/features': typeof FeaturesRoute
   '/login': typeof LoginRoute
+  '/pricing': typeof PricingRoute
   '/signup': typeof SignupRoute
   '/upload': typeof UploadRoute
 }
@@ -87,6 +95,7 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/features': typeof FeaturesRoute
   '/login': typeof LoginRoute
+  '/pricing': typeof PricingRoute
   '/signup': typeof SignupRoute
   '/upload': typeof UploadRoute
 }
@@ -99,6 +108,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/features'
     | '/login'
+    | '/pricing'
     | '/signup'
     | '/upload'
   fileRoutesByTo: FileRoutesByTo
@@ -109,6 +119,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/features'
     | '/login'
+    | '/pricing'
     | '/signup'
     | '/upload'
   id:
@@ -119,6 +130,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/features'
     | '/login'
+    | '/pricing'
     | '/signup'
     | '/upload'
   fileRoutesById: FileRoutesById
@@ -130,6 +142,7 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   FeaturesRoute: typeof FeaturesRoute
   LoginRoute: typeof LoginRoute
+  PricingRoute: typeof PricingRoute
   SignupRoute: typeof SignupRoute
   UploadRoute: typeof UploadRoute
 }
@@ -148,6 +161,13 @@ declare module '@tanstack/react-router' {
       path: '/signup'
       fullPath: '/signup'
       preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pricing': {
+      id: '/pricing'
+      path: '/pricing'
+      fullPath: '/pricing'
+      preLoaderRoute: typeof PricingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -202,6 +222,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   FeaturesRoute: FeaturesRoute,
   LoginRoute: LoginRoute,
+  PricingRoute: PricingRoute,
   SignupRoute: SignupRoute,
   UploadRoute: UploadRoute,
 }
