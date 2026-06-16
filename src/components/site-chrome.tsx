@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { Menu, X, ArrowUpRight } from "lucide-react";
+import { Menu, X, ArrowUpRight, LogOut, User as UserIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { useAuth } from "../hooks/useAuth";
 
 export const Logo = ({ className = "" }: { className?: string }) => (
   <svg viewBox="0 0 24 24" className={className} fill="none" aria-label="Viktor RAG">
@@ -35,16 +36,20 @@ export const InvertedBtn = ({ children, className = "", ...props }: React.Button
   </button>
 );
 
-const NAV = [
-  { label: "Features", to: "/features" as const },
-  { label: "Pricing", to: "/pricing" as const },
-  { label: "Docs", to: "/docs" as const },
-  { label: "Dashboard", to: "/dashboard" as const },
-  { label: "Chat", to: "/chat" as const },
-];
-
 export function Navbar() {
   const [open, setOpen] = useState(false);
+  const { user, signOut } = useAuth();
+
+  const NAV = [
+    { label: "Features", to: "/features" as const },
+    { label: "Pricing", to: "/pricing" as const },
+    { label: "Docs", to: "/docs" as const },
+    ...(user ? [
+      { label: "Dashboard", to: "/dashboard" as const },
+      { label: "Chat", to: "/chat" as const },
+    ] : []),
+  ];
+
   return (
     <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center pt-4 sm:pt-6 px-4 sm:px-8 gap-2 sm:gap-3">
       <Link to="/" className="flex items-center justify-center rounded-full w-10 h-10 sm:w-11 sm:h-11 shrink-0" style={{ backgroundColor: "#EDEDED" }} aria-label="Home">
@@ -61,8 +66,23 @@ export function Navbar() {
             {l.label}
           </Link>
         ))}
-        <Link to="/login" className="text-[12px] sm:text-[14px] font-medium text-gray-700 hover:text-gray-900">Sign in</Link>
-        <Link to="/signup"><PrimaryBtn className="!text-[12px] !px-5 !py-2">Get Started</PrimaryBtn></Link>
+        {user ? (
+          <div className="flex items-center gap-3">
+            <span className="text-[12px] text-gray-500 hidden lg:inline">{user.email}</span>
+            <Link to="/upload" className="text-[12px] sm:text-[14px] font-medium text-gray-700 hover:text-gray-900">Upload</Link>
+            <Link to="/profile" className="text-[12px] sm:text-[14px] font-medium text-gray-700 hover:text-gray-900 flex items-center gap-1">
+              <UserIcon className="w-3 h-3" /> Profile
+            </Link>
+            <button onClick={signOut} className="text-[12px] sm:text-[14px] font-medium text-gray-700 hover:text-gray-900 flex items-center gap-1">
+              <LogOut className="w-3 h-3" /> Sign out
+            </button>
+          </div>
+        ) : (
+          <>
+            <Link to="/login" className="text-[12px] sm:text-[14px] font-medium text-gray-700 hover:text-gray-900">Sign in</Link>
+            <Link to="/signup"><PrimaryBtn className="!text-[12px] !px-5 !py-2">Get Started</PrimaryBtn></Link>
+          </>
+        )}
       </nav>
       <button onClick={() => setOpen(true)} className="md:hidden flex items-center justify-center rounded-full w-10 h-10 shrink-0" style={{ backgroundColor: "#EDEDED" }} aria-label="Menu">
         <Menu className="w-5 h-5 text-[#051A24]" />
@@ -77,8 +97,18 @@ export function Navbar() {
             {NAV.map((l) => (
               <Link key={l.label} to={l.to} className="text-base font-medium text-[#051A24]" onClick={() => setOpen(false)}>{l.label}</Link>
             ))}
-            <Link to="/login" onClick={() => setOpen(false)} className="text-base font-medium text-[#051A24]">Sign in</Link>
-            <Link to="/signup" onClick={() => setOpen(false)}><PrimaryBtn className="w-full">Get Started</PrimaryBtn></Link>
+            {user && (
+              <>
+                <Link to="/upload" className="text-base font-medium text-[#051A24]" onClick={() => setOpen(false)}>Upload</Link>
+                <button onClick={() => { signOut(); setOpen(false); }} className="text-base font-medium text-red-500 text-left">Sign out</button>
+              </>
+            )}
+            {!user && (
+              <>
+                <Link to="/login" onClick={() => setOpen(false)} className="text-base font-medium text-[#051A24]">Sign in</Link>
+                <Link to="/signup" onClick={() => setOpen(false)}><PrimaryBtn className="w-full">Get Started</PrimaryBtn></Link>
+              </>
+            )}
           </aside>
         </div>
       )}

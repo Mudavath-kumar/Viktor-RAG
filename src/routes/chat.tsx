@@ -1,138 +1,384 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useRef, useEffect } from "react";
-import { PageShell, SectionEyebrow, PrimaryBtn } from "@/components/site-chrome";
-import { Send, ShieldCheck, Quote, Sparkles, FileText } from "lucide-react";
-import chatImg from "@/assets/chat-cards.jpg";
+import { PageShell } from "@/components/site-chrome";
+import { Send, Plus, Trash2, MessageSquare, Sparkles, Search, Pencil, Check, X, Download } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
+import { api } from "@/lib/api";
 
 export const Route = createFileRoute("/chat")({
   head: () => ({
     meta: [
       { title: "Chat — Viktor RAG" },
-      { name: "description", content: "Ask questions across your documents. Every answer is verified, scored, and pinned to the exact source." },
-      { property: "og:title", content: "Chat — Viktor RAG" },
-      { property: "og:description", content: "Cited, verified answers from your own knowledge base." },
+      { name: "description", content: "Ask questions across your documents." },
     ],
   }),
   component: ChatPage,
 });
 
-type Msg = { role: "user" | "assistant"; text: string; confidence?: number; citations?: { doc: string; page: string }[] };
-
-const seed: Msg[] = [
-  { role: "user", text: "What's the renewal clause in the 2025 Acme contract?" },
-  {
-    role: "assistant",
-    text: "The contract auto-renews for successive 12-month terms unless either party gives written notice at least 60 days before expiry. Pricing is locked unless the indexed inflation rate exceeds 4%.",
-    confidence: 0.96,
-    citations: [
-      { doc: "acme-msa-2025.pdf", page: "p. 14, §7.2" },
-      { doc: "acme-msa-2025.pdf", page: "p. 15, §7.4" },
-    ],
-  },
-];
-
-const suggestions = [
-  "Summarize the Q4 earnings narrative",
-  "Find contradictions across the policy docs",
-  "What dependencies does the auth service use?",
-  "Compare pricing tiers in the latest proposals",
-];
+type Msg = { id: string; role: "user" | "assistant"; content: string; created_at: string };
+type Session = { id: string; title: string; created_at: string; document_id?: string; document_name?: string };
 
 function ChatPage() {
-  const [msgs, setMsgs] = useState<Msg[]>(seed);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [selectedDocId, setSelectedDocId] = useState<string>("all");
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (user) {
+      loadSessions();
+      loadDocuments().then((docsList) => {
+        const scopeDocId = localStorage.getItem("scope_doc_id");
+        if (scopeDocId) {
+          localStorage.removeItem("scope_doc_id");
+          setSelectedDocId(scopeDocId);
+          newChat(scopeDocId, docsList);
+        }
+      });
+    }
+  }, [user]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [msgs]);
+  }, [messages]);
 
-  const ask = (q: string) => {
-    if (!q.trim()) return;
-    setMsgs((p) => [...p, { role: "user", text: q }]);
-    setInput("");
-    setTimeout(() => {
-      setMsgs((p) => [...p, {
-        role: "assistant",
-        text: "Based on the indexed sources, here's a verified answer with citations pinned to exact pages. Confidence reflects retrieval similarity and verification agreement.",
-        confidence: 0.88 + Math.random() * 0.1,
-        citations: [{ doc: "indexed-source.pdf", page: `p. ${Math.floor(Math.random() * 40) + 1}` }],
-      }]);
-    }, 700);
+  useEffect(() => {
+    if (editingSessionId && editInputRef.current) {
+      editInputRef.current.focus();
+    }
+  }, [editingSessionId]);
+
+  const loadSessions = async () => {
+    if (!user) return;
+    const { sessions: s } = await api.getSessions(user.id);
+    setSessions(s ?? []);
   };
+
+  const loadDocuments = async () => {
+    if (!user) return [];
+    try {
+      const { documents: d } = await api.getDocuments(user.id);
+      setDocuments(d ?? []);
+      return d ?? [];
+    } catch (e) {
+      return [];
+    }
+  };
+
+  const selectSession = async (id: string) => {
+    setActiveId(id);
+    setSidebarOpen(false);
+    setEditingSessionId(null);
+    const { messages: m } = await api.getMessages(id);
+    setMessages(m ?? []);
+  };
+
+  const newChat = async (docId?: string, docsList?: any[]) => {
+    if (!user) return;
+    const scopeId: string | undefined = docId || (selectedDocId === "all" ? undefined : selectedDocId);
+    let scopeName: string | undefined;
+    if (scopeId) {
+      const activeList = docsList || documents;
+      const d = activeList.find((doc: any) => doc.id === scopeId);
+      if (d) scopeName = d.name;
+    }
+    const { session } = await api.createSession(user.id, scopeId, scopeName);
+    if (session) {
+      setSessions((p) => [session, ...p]);
+      setActiveId(session.id);
+      setMessages([]);
+    }
+  };
+
+  const ask = async (q: string) => {
+    if (!q.trim() || !user) return;
+    const userId = user.id;
+    let sid = activeId;
+    if (!sid) {
+      const scopeId: string | undefined = selectedDocId === "all" ? undefined : selectedDocId;
+      let scopeName: string | undefined;
+      if (scopeId) {
+        const d = documents.find((doc: any) => doc.id === scopeId);
+        if (d) scopeName = d.name;
+      }
+      const { session } = await api.createSession(userId, scopeId, scopeName);
+      if (!session) return;
+      sid = session.id;
+      setSessions((p) => [session, ...p]);
+      setActiveId(session.id);
+    }
+    setMessages((p) => [...p, { id: "u-" + Date.now(), role: "user", content: q, created_at: new Date().toISOString() }]);
+    setInput("");
+    setSending(true);
+    try {
+      const { message } = await api.sendMessage(sid!, userId, q);
+      if (message) setMessages((p) => [...p, message]);
+      loadSessions();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to send message");
+    }
+    setSending(false);
+  };
+
+  const removeSession = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!user) return;
+    await api.deleteSession(id, user.id);
+    setSessions((p) => p.filter((s) => s.id !== id));
+    if (activeId === id) { setActiveId(null); setMessages([]); }
+  };
+
+  const startRename = (e: React.MouseEvent, s: Session) => {
+    e.stopPropagation();
+    setEditingSessionId(s.id);
+    setEditTitle(s.title);
+  };
+
+  const commitRename = async (sessionId: string) => {
+    if (!user || !editTitle.trim()) { setEditingSessionId(null); return; }
+    try {
+      await api.renameSession(sessionId, user.id, editTitle.trim());
+      setSessions((p) => p.map((s) => s.id === sessionId ? { ...s, title: editTitle.trim() } : s));
+    } catch {
+      toast.error("Failed to rename session");
+    }
+    setEditingSessionId(null);
+  };
+
+  const exportChat = () => {
+    if (messages.length === 0) return;
+    const session = sessions.find((s) => s.id === activeId);
+    const lines = messages.map((m) =>
+      `[${m.role.toUpperCase()}] ${new Date(m.created_at).toLocaleString()}\n${m.content}`
+    );
+    const text = `Chat Export: ${session?.title || "Conversation"}\n${"=".repeat(60)}\n\n${lines.join("\n\n---\n\n")}`;
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${session?.title?.replace(/[^a-z0-9]/gi, "_") || "chat"}_export.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Chat exported!");
+  };
+
+  if (!user) {
+    navigate({ to: "/login" });
+    return null;
+  }
+
+  const activeSession = sessions.find((s) => s.id === activeId);
+  const filteredSessions = sessions.filter((s) =>
+    s.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <PageShell>
       <section className="px-6 max-w-[1200px] mx-auto pb-20">
-        <div className="grid lg:grid-cols-12 gap-8 items-start">
-          <aside className="lg:col-span-4 lg:sticky lg:top-32 space-y-6">
-            <SectionEyebrow>Chat</SectionEyebrow>
-            <h1 className="text-[36px] md:text-[48px] leading-[1] tracking-tight">
-              Ask your <span className="font-mondwest text-[#1f5d4f]">archive</span>.<br />Trust the answer.
-            </h1>
-            <img src={chatImg} alt="Layered translucent index cards with handwritten notes" loading="lazy" className="w-full rounded-3xl shadow-lg aspect-[4/3] object-cover" />
-            <div className="bg-white rounded-3xl p-6 border border-[#051A24]/5">
-              <p className="text-xs uppercase tracking-wide text-[#273C46] mb-3">Try asking</p>
-              <ul className="space-y-2">
-                {suggestions.map((s) => (
-                  <li key={s}>
-                    <button onClick={() => ask(s)} className="text-left text-sm text-[#051A24] hover:text-[#1f5d4f] transition-colors w-full">{s}</button>
+        <div className="flex gap-8 items-start">
+          {/* Sidebar */}
+          <aside className={`${sidebarOpen ? "block" : "hidden"} lg:block w-72 shrink-0 sticky top-32 space-y-3`}>
+            <button
+              onClick={() => newChat()}
+              className="w-full flex items-center gap-2 bg-[#051A24] text-white rounded-full px-5 py-3 text-sm font-medium hover:bg-[#0D212C] transition"
+            >
+              <Plus className="w-4 h-4" /> New Chat
+            </button>
+
+            {/* Scope selector */}
+            <div className="bg-white rounded-2xl border border-[#051A24]/5 p-4 space-y-2">
+              <p className="text-xs uppercase tracking-wide text-[#273C46] font-semibold">New Chat Scope</p>
+              <select
+                value={selectedDocId}
+                onChange={(e) => setSelectedDocId(e.target.value)}
+                className="w-full rounded-xl border border-[#051A24]/10 bg-[#f0f0ee] px-3 py-2 text-sm text-[#051A24] focus:outline-none focus:ring-2 focus:ring-[#1f5d4f]"
+              >
+                <option value="all">📂 All Documents</option>
+                {documents.filter((d: any) => d.status === "done").map((doc: any) => (
+                  <option key={doc.id} value={doc.id}>📄 {doc.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Search */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-[#273C46]/60 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search history…"
+                className="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-[#051A24]/10 bg-white focus:outline-none focus:ring-2 focus:ring-[#1f5d4f] placeholder:text-[#273C46]/40"
+              />
+            </div>
+
+            {/* Session history */}
+            <div className="bg-white rounded-2xl border border-[#051A24]/5 p-3 max-h-[50vh] overflow-y-auto">
+              <p className="text-xs uppercase tracking-wide text-[#273C46] mb-2 px-1">History</p>
+              {filteredSessions.length === 0 && (
+                <p className="text-xs text-[#273C46]/60 px-1">
+                  {searchQuery ? "No matches found" : "No conversations yet"}
+                </p>
+              )}
+              <ul className="space-y-0.5">
+                {filteredSessions.map((s) => (
+                  <li key={s.id}>
+                    {editingSessionId === s.id ? (
+                      <div className="flex items-center gap-1 px-2 py-1">
+                        <input
+                          ref={editInputRef}
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitRename(s.id);
+                            if (e.key === "Escape") setEditingSessionId(null);
+                          }}
+                          className="flex-1 text-sm rounded-lg border border-[#1f5d4f]/40 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#1f5d4f]"
+                        />
+                        <button onClick={() => commitRename(s.id)} className="text-[#1f5d4f] hover:text-[#1f5d4f]/80">
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => setEditingSessionId(null)} className="text-[#273C46]/60 hover:text-[#273C46]">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => selectSession(s.id)}
+                        className={`w-full text-left flex items-center gap-2 px-2 py-2 rounded-xl text-sm transition-colors group ${activeId === s.id ? "bg-[#f0f0ee] text-[#051A24] font-medium" : "text-[#273C46] hover:bg-[#f0f0ee]"}`}
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate flex-1">{s.title}</span>
+                        <span className="hidden group-hover:flex items-center gap-0.5">
+                          <button
+                            onClick={(e) => startRename(e, s)}
+                            className="p-0.5 rounded hover:text-[#051A24]"
+                            title="Rename"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => removeSession(e, s.id)}
+                            className="p-0.5 rounded hover:text-red-500"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </span>
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
             </div>
           </aside>
 
-          <div className="lg:col-span-8">
-            <div className="bg-white rounded-[28px] border border-[#051A24]/5 flex flex-col h-[70vh] min-h-[560px]">
-              <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
-                {msgs.map((m, i) => (
-                  <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[85%] rounded-3xl px-5 py-4 ${m.role === "user" ? "bg-[#051A24] text-white" : "bg-[#f0f0ee] text-[#051A24]"}`}>
-                      <p className="text-[15px] leading-relaxed">{m.text}</p>
-                      {m.role === "assistant" && m.confidence !== undefined && (
-                        <div className="mt-4 pt-4 border-t border-[#051A24]/10">
-                          <div className="flex items-center gap-3 text-xs font-mono text-[#1f5d4f]">
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                            VERIFIED · {m.confidence.toFixed(2)}
-                            <div className="flex-1 h-1 rounded-full bg-[#051A24]/10 overflow-hidden">
-                              <div className="h-full bg-[#1f5d4f]" style={{ width: `${m.confidence * 100}%` }} />
-                            </div>
-                          </div>
-                          <ul className="mt-3 space-y-1">
-                            {m.citations?.map((c, j) => (
-                              <li key={j} className="flex items-center gap-2 text-xs text-[#273C46]">
-                                <Quote className="w-3 h-3" />
-                                <span className="font-medium text-[#051A24]">{c.doc}</span>
-                                <span>·</span>
-                                <span>{c.page}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
+          {/* Main chat area */}
+          <div className="flex-1 min-w-0">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="lg:hidden mb-4 text-sm text-[#1f5d4f] font-medium"
+            >
+              {sidebarOpen ? "Close history" : "Show history"}
+            </button>
+
+            <div className="bg-white rounded-[28px] border border-[#051A24]/5 flex flex-col h-[76vh] min-h-[560px] overflow-hidden">
+              {/* Header bar */}
+              {activeId && activeSession && (
+                <div className="px-5 py-3 border-b border-[#051A24]/10 bg-[#f0f0ee]/50 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {activeSession.document_name ? (
+                      <span className="text-xs bg-[#1f5d4f]/10 text-[#1f5d4f] rounded-full px-2.5 py-0.5 font-medium shrink-0">
+                        📄 {activeSession.document_name}
+                      </span>
+                    ) : (
+                      <span className="text-xs bg-[#051A24]/10 text-[#051A24] rounded-full px-2.5 py-0.5 font-medium shrink-0">
+                        📂 All Docs
+                      </span>
+                    )}
+                    <span className="text-xs text-[#273C46] truncate">{activeSession.title}</span>
                   </div>
-                ))}
-              </div>
+                  {messages.length > 0 && (
+                    <button
+                      onClick={exportChat}
+                      title="Export conversation"
+                      className="flex items-center gap-1.5 text-xs text-[#273C46] hover:text-[#051A24] shrink-0 px-2.5 py-1.5 rounded-lg hover:bg-[#051A24]/5 transition"
+                    >
+                      <Download className="w-3.5 h-3.5" /> Export
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Messages */}
+              {!activeId && messages.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+                  <Sparkles className="w-12 h-12 text-[#1f5d4f] mb-4" />
+                  <h2 className="text-2xl font-medium text-[#051A24]">Ask anything</h2>
+                  <p className="text-sm text-[#273C46] mt-2 max-w-sm">
+                    Start a new conversation or pick one from your history. Select a document scope from the sidebar to chat with a specific file.
+                  </p>
+                </div>
+              ) : (
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 md:p-8 space-y-5">
+                  {messages.map((m) => (
+                    <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[85%] rounded-3xl px-5 py-4 ${m.role === "user" ? "bg-[#051A24] text-white" : "bg-[#f0f0ee] text-[#051A24]"}`}>
+                        <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{m.content}</p>
+                        <p className={`text-[10px] mt-2 ${m.role === "user" ? "text-white/40" : "text-[#273C46]/40"}`}>
+                          {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                  {sending && (
+                    <div className="flex justify-start">
+                      <div className="bg-[#f0f0ee] rounded-3xl px-5 py-4 flex items-center gap-3">
+                        <div className="flex gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#1f5d4f] animate-bounce" style={{ animationDelay: "0ms" }} />
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#1f5d4f] animate-bounce" style={{ animationDelay: "150ms" }} />
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#1f5d4f] animate-bounce" style={{ animationDelay: "300ms" }} />
+                        </div>
+                        <p className="text-sm text-[#273C46]">Generating answer…</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Input */}
               <form
                 onSubmit={(e) => { e.preventDefault(); ask(input); }}
                 className="border-t border-[#051A24]/10 p-4 flex items-center gap-3"
               >
-                <Sparkles className="w-4 h-4 text-[#1f5d4f]" />
+                <Sparkles className="w-4 h-4 text-[#1f5d4f] shrink-0" />
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="Ask anything across your indexed documents…"
-                  className="flex-1 bg-transparent outline-none text-[15px] placeholder:text-[#273C46]/60"
+                  disabled={sending}
+                  className="flex-1 bg-transparent outline-none text-[15px] placeholder:text-[#273C46]/50 disabled:opacity-50"
                 />
-                <button type="submit" className="bg-[#051A24] text-white rounded-full w-10 h-10 flex items-center justify-center hover:bg-[#0D212C] transition-all" aria-label="Send">
+                <button
+                  type="submit"
+                  disabled={sending || !input.trim()}
+                  className="bg-[#051A24] text-white rounded-full w-10 h-10 flex items-center justify-center hover:bg-[#0D212C] transition-all disabled:opacity-40 shrink-0"
+                  aria-label="Send"
+                >
                   <Send className="w-4 h-4" />
                 </button>
               </form>
-            </div>
-            <div className="mt-4 flex items-center gap-2 text-xs text-[#273C46]">
-              <FileText className="w-3 h-3" /> Answers grounded in 2,418 indexed sources.
             </div>
           </div>
         </div>

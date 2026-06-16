@@ -2,12 +2,14 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageShell, SectionEyebrow, PrimaryBtn } from "@/components/site-chrome";
 import { Mail, Lock, User, Building2, Check, ArrowRight } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/signup")({
   head: () => ({
     meta: [
       { title: "Create account — Viktor RAG" },
-      { name: "description", content: "Start your free Viktor RAG workspace. Upload documents and get verified, cited answers in minutes." },
+      { name: "description", content: "Start your free Viktor RAG workspace." },
     ],
   }),
   component: SignupPage,
@@ -22,12 +24,30 @@ const perks = [
 
 function SignupPage() {
   const [loading, setLoading] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const navigate = useNavigate();
-  const submit = (e: React.FormEvent) => {
+  const { signUp, user } = useAuth();
+
+  if (user) {
+    navigate({ to: "/dashboard" });
+    return null;
+  }
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => navigate({ to: "/dashboard" }), 700);
+    const { error } = await signUp(email, password, name);
+    setLoading(false);
+    if (error) {
+      toast.error(error);
+    } else {
+      toast.success("Account created successfully! You can now log in.");
+      navigate({ to: "/login" });
+    }
   };
+
   return (
     <PageShell>
       <section className="px-6 max-w-[1100px] mx-auto pb-24 grid md:grid-cols-2 gap-12 items-center">
@@ -63,20 +83,27 @@ function SignupPage() {
           <h2 className="text-2xl font-medium">Create your workspace</h2>
           <p className="text-sm text-[#273C46] mt-1">Takes about a minute.</p>
           <form onSubmit={submit} className="mt-6 space-y-4">
-            {[
-              { Icon: User, label: "Full name", type: "text", ph: "Ada Lovelace" },
-              { Icon: Building2, label: "Workspace", type: "text", ph: "Acme Research" },
-              { Icon: Mail, label: "Work email", type: "email", ph: "you@company.com" },
-              { Icon: Lock, label: "Password", type: "password", ph: "8+ characters" },
-            ].map((f) => (
-              <label key={f.label} className="block">
-                <span className="text-xs text-[#273C46] uppercase tracking-wide">{f.label}</span>
-                <div className="mt-1 relative">
-                  <f.Icon className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-[#273C46]" />
-                  <input required type={f.type} placeholder={f.ph} className="w-full rounded-full border border-[#051A24]/10 bg-[#f0f0ee] pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#1f5d4f]" />
-                </div>
-              </label>
-            ))}
+            <label className="block">
+              <span className="text-xs text-[#273C46] uppercase tracking-wide">Full name</span>
+              <div className="mt-1 relative">
+                <User className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-[#273C46]" />
+                <input required type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ada Lovelace" className="w-full rounded-full border border-[#051A24]/10 bg-[#f0f0ee] pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#1f5d4f]" />
+              </div>
+            </label>
+            <label className="block">
+              <span className="text-xs text-[#273C46] uppercase tracking-wide">Work email</span>
+              <div className="mt-1 relative">
+                <Mail className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-[#273C46]" />
+                <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className="w-full rounded-full border border-[#051A24]/10 bg-[#f0f0ee] pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#1f5d4f]" />
+              </div>
+            </label>
+            <label className="block">
+              <span className="text-xs text-[#273C46] uppercase tracking-wide">Password</span>
+              <div className="mt-1 relative">
+                <Lock className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-[#273C46]" />
+                <input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="8+ characters" className="w-full rounded-full border border-[#051A24]/10 bg-[#f0f0ee] pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#1f5d4f]" />
+              </div>
+            </label>
             <label className="flex items-start gap-2 text-xs text-[#273C46]">
               <input required type="checkbox" className="mt-0.5" />
               I agree to the <a href="#" className="text-[#1f5d4f] underline">Terms</a> and <a href="#" className="text-[#1f5d4f] underline">Privacy Policy</a>.
