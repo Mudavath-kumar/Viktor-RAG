@@ -1,20 +1,20 @@
 import config
 from groq import Groq
-from sentence_transformers import SentenceTransformer
-from typing import List, Optional
+from typing import List, Optional, Any
 import numpy as np
 import data_store as store
 
 # Lazy-loaded singletons — loaded once on first use
-_model: SentenceTransformer | None = None
+_model: Any = None
 _groq_client: Groq | None = None
 
 
-def get_model() -> SentenceTransformer:
+def get_model() -> Any:
     """Load sentence-transformers model locally (downloads ~80 MB on first run)."""
     global _model
     if _model is None:
         print("Loading embedding model (first run may take a moment)...")
+        from sentence_transformers import SentenceTransformer
         _model = SentenceTransformer("all-MiniLM-L6-v2")
         print("Embedding model loaded.")
     return _model
