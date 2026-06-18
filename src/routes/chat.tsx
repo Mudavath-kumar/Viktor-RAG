@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { PageShell } from "@/components/site-chrome";
-import { Send, Plus, Trash2, MessageSquare, Sparkles, Search, Pencil, Check, X, Download } from "lucide-react";
+import { Send, Plus, Trash2, MessageSquare, Sparkles, Search, Pencil, Check, X, Download, Mic, MicOff, Volume2, VolumeX, Brain } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -35,6 +35,95 @@ function ChatPage() {
   const [editTitle, setEditTitle] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
+
+  // Voice Chat state
+  const [isListening, setIsListening] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  // Document Summary state
+  const [summary, setSummary] = useState<any>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [showSummaryPanel, setShowSummaryPanel] = useState(false);
+
+  // Clear summary when active session changes
+  useEffect(() => {
+    setSummary(null);
+    setShowSummaryPanel(false);
+  }, [activeId]);
+
+  const handleSummarize = async (docId: string) => {
+    setLoadingSummary(true);
+    setShowSummaryPanel(true);
+    try {
+      // First try to get existing summary
+      let res = await api.getSummary(docId);
+      if (!res.summary) {
+        // If not summarized yet, trigger summarization
+        toast.info("Analyzing document and generating summary...");
+        res = await api.summarize(docId, user!.id);
+      }
+      setSummary(res);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to generate summary");
+      setShowSummaryPanel(false);
+    }
+    setLoadingSummary(false);
+  };
+
+  // Initialize speech recognition
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || "en-US";
+      recognition.onresult = (event: any) => {
+        let transcript = "";
+        for (let i = 0; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        setInput(transcript);
+      };
+      recognition.onend = () => setIsListening(false);
+      recognition.onerror = () => setIsListening(false);
+      recognitionRef.current = recognition;
+    }
+    return () => {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch {}
+      }
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
+  const toggleMic = useCallback(() => {
+    if (!recognitionRef.current) {
+      toast.error("Speech recognition not supported in this browser");
+      return;
+    }
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      setInput("");
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  }, [isListening]);
+
+  const speakText = useCallback((text: string) => {
+    if (!ttsEnabled || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    // Strip markdown bold markers
+    const clean = text.replace(/\*\*/g, "").replace(/`/g, "");
+    const utterance = new SpeechSynthesisUtterance(clean);
+    utterance.lang = navigator.language || "en-US";
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    window.speechSynthesis.speak(utterance);
+  }, [ttsEnabled]);
 
   useEffect(() => {
     if (user) {
@@ -124,7 +213,13 @@ function ChatPage() {
     setSending(true);
     try {
       const { message } = await api.sendMessage(sid!, userId, q);
-      if (message) setMessages((p) => [...p, message]);
+      if (message) {
+        setMessages((p) => [...p, message]);
+        // Auto-speak AI response if TTS is enabled
+        if (ttsEnabled && message.content) {
+          speakText(message.content);
+        }
+      }
       loadSessions();
     } catch (e: any) {
       toast.error(e.message || "Failed to send message");
@@ -309,15 +404,91 @@ function ChatPage() {
                     )}
                     <span className="text-xs text-[#273C46] truncate">{activeSession.title}</span>
                   </div>
-                  {messages.length > 0 && (
-                    <button
-                      onClick={exportChat}
-                      title="Export conversation"
-                      className="flex items-center gap-1.5 text-xs text-[#273C46] hover:text-[#051A24] shrink-0 px-2.5 py-1.5 rounded-lg hover:bg-[#051A24]/5 transition"
+                  <div className="flex items-center gap-2 shrink-0">
+                    {activeSession.document_id && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleSummarize(activeSession.document_id!)}
+                          title="Summarize document"
+                          className="flex items-center gap-1.5 text-xs text-[#1f5d4f] hover:bg-[#1f5d4f]/10 shrink-0 px-2.5 py-1.5 rounded-lg border border-[#1f5d4f]/20 transition cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" /> Summarize
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate({ to: "/quiz", search: { docId: activeSession.document_id, docName: activeSession.document_name || "Document" } })}
+                          title="Generate quiz from document"
+                          className="flex items-center gap-1.5 text-xs text-[#051A24] hover:bg-[#051A24]/5 shrink-0 px-2.5 py-1.5 rounded-lg border border-[#051A24]/10 transition cursor-pointer"
+                        >
+                          <Brain className="w-3.5 h-3.5" /> Take Quiz
+                        </button>
+                      </>
+                    )}
+                    {messages.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={exportChat}
+                        title="Export conversation"
+                        className="flex items-center gap-1.5 text-xs text-[#273C46] hover:text-[#051A24] shrink-0 px-2.5 py-1.5 rounded-lg hover:bg-[#051A24]/5 transition"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Export
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Document Summary Panel */}
+              {showSummaryPanel && activeSession?.document_id && (
+                <div className="bg-[#1f5d4f]/5 border-b border-[#1f5d4f]/20 p-5 space-y-4 animate-fade-in-up shrink-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-[#1f5d4f] animate-pulse" />
+                      <h3 className="text-sm font-semibold text-[#051A24]">Document Summary</h3>
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={() => setShowSummaryPanel(false)}
+                      className="text-[#273C46]/60 hover:text-[#273C46] p-1 hover:bg-[#1f5d4f]/10 rounded-lg transition cursor-pointer"
                     >
-                      <Download className="w-3.5 h-3.5" /> Export
+                      <X className="w-4 h-4" />
                     </button>
-                  )}
+                  </div>
+                  {loadingSummary ? (
+                    <div className="flex items-center gap-3 py-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#1f5d4f] animate-ping" />
+                      <p className="text-xs text-[#273C46]/70">Reading file chunks & summarizing...</p>
+                    </div>
+                  ) : summary ? (
+                    <div className="space-y-3 text-left">
+                      <div className="bg-white rounded-xl p-3 border border-[#1f5d4f]/10">
+                        <p className="text-xs font-semibold text-[#1f5d4f] uppercase tracking-wider mb-1">TL;DR</p>
+                        <p className="text-sm text-[#051A24] leading-relaxed">{summary.tldr || summary.summary}</p>
+                      </div>
+                      
+                      {summary.key_points && summary.key_points.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-[#273C46]/80 uppercase tracking-wider mb-1 px-1">Key Takeaways</p>
+                          <ul className="list-disc pl-5 text-xs text-[#051A24] space-y-1">
+                            {summary.key_points.map((pt: string, idx: number) => (
+                              <li key={idx}>{pt}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {summary.topics && summary.topics.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {summary.topics.map((topic: string, idx: number) => (
+                            <span key={idx} className="text-[10px] bg-[#1f5d4f]/10 text-[#1f5d4f] rounded-full px-2 py-0.5 font-medium">
+                              {topic}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               )}
 
@@ -362,14 +533,43 @@ function ChatPage() {
                 onSubmit={(e) => { e.preventDefault(); ask(input); }}
                 className="border-t border-[#051A24]/10 p-4 flex items-center gap-3"
               >
-                <Sparkles className="w-4 h-4 text-[#1f5d4f] shrink-0" />
+                {/* Mic button */}
+                <button
+                  type="button"
+                  onClick={toggleMic}
+                  className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all ${
+                    isListening
+                      ? "bg-red-500 text-white animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.5)]"
+                      : "bg-[#f0f0ee] text-[#273C46] hover:bg-[#1f5d4f]/10 hover:text-[#1f5d4f]"
+                  }`}
+                  title={isListening ? "Stop listening" : "Voice input"}
+                >
+                  {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </button>
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Ask anything across your indexed documents…"
+                  placeholder={isListening ? "Listening..." : "Ask anything across your indexed documents…"}
                   disabled={sending}
-                  className="flex-1 bg-transparent outline-none text-[15px] placeholder:text-[#273C46]/50 disabled:opacity-50"
+                  className={`flex-1 bg-transparent outline-none text-[15px] placeholder:text-[#273C46]/50 disabled:opacity-50 ${isListening ? "placeholder:text-red-400 placeholder:animate-pulse" : ""}`}
                 />
+                {/* TTS toggle */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTtsEnabled(!ttsEnabled);
+                    if (ttsEnabled) window.speechSynthesis?.cancel();
+                    toast.success(ttsEnabled ? "Voice output off" : "Voice output on");
+                  }}
+                  className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all ${
+                    ttsEnabled
+                      ? "bg-[#1f5d4f] text-white"
+                      : "bg-[#f0f0ee] text-[#273C46] hover:bg-[#1f5d4f]/10 hover:text-[#1f5d4f]"
+                  }`}
+                  title={ttsEnabled ? "Disable voice output" : "Enable voice output"}
+                >
+                  {ttsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                </button>
                 <button
                   type="submit"
                   disabled={sending || !input.trim()}

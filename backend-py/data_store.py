@@ -263,3 +263,39 @@ def get_dashboard_stats(user_id: str) -> dict:
         "recent_activity": [{"id": d["id"], "name": d["name"], "status": d.get("status", ""),
                              "created_at": d.get("created_at", "")} for d in docs[:5]],
     }
+
+
+# ─── AI Feature Storage ───────────────────────────────────────────────
+
+def get_summary(doc_id: str) -> Optional[dict]:
+    return _read_json(f"summary_{doc_id}.json")
+
+
+def save_summary(doc_id: str, summary: dict):
+    _write_json(f"summary_{doc_id}.json", summary)
+
+
+def get_quiz(doc_id: str) -> Optional[dict]:
+    return _read_json(f"quiz_{doc_id}.json")
+
+
+def save_quiz(doc_id: str, quiz: dict):
+    _write_json(f"quiz_{doc_id}.json", quiz)
+
+
+def update_document_tags(user_id: str, doc_id: str, tags: list, category: str):
+    docs = get_documents(user_id)
+    for d in docs:
+        if d["id"] == doc_id:
+            d["tags"] = tags
+            d["category"] = category
+            break
+    save_documents(user_id, docs)
+
+
+def get_insights(user_id: str) -> Optional[dict]:
+    return _read_json(f"insights_{user_id}.json")
+
+
+def save_insights(user_id: str, insights: dict):
+    _write_json(f"insights_{user_id}.json", insights)

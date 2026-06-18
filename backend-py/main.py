@@ -10,7 +10,7 @@ import traceback
 
 import data_store as store
 from models import SignupRequest, LoginRequest, AuthResponse, ChatRequest, CreateSessionRequest
-from rag import process_document, generate_answer, extract_text
+from rag import process_document, generate_answer, extract_text, generate_summary, generate_quiz, generate_tags, generate_insights
 
 
 @asynccontextmanager
@@ -190,6 +190,56 @@ async def delete_session(session_id: str, user_id: str = ""):
 async def rename_session(session_id: str, user_id: str, title: str):
     store.rename_session(user_id, session_id, title)
     return {"success": True}
+
+
+# ─── AI Features ────────────────────────────────────────────────────────────
+
+@app.post("/api/documents/{doc_id}/summarize")
+async def summarize_document(doc_id: str, user_id: str):
+    result = generate_summary(doc_id, user_id)
+    return result
+
+
+@app.get("/api/documents/{doc_id}/summary")
+async def get_summary(doc_id: str):
+    cached = store.get_summary(doc_id)
+    if cached:
+        return cached
+    return {"summary": "", "key_points": [], "topics": [], "tldr": ""}
+
+
+@app.post("/api/documents/{doc_id}/quiz")
+async def create_quiz(doc_id: str, user_id: str):
+    result = generate_quiz(doc_id, user_id)
+    return result
+
+
+@app.get("/api/documents/{doc_id}/quiz")
+async def get_quiz(doc_id: str):
+    cached = store.get_quiz(doc_id)
+    if cached:
+        return cached
+    return {"doc_id": doc_id, "questions": []}
+
+
+@app.post("/api/documents/{doc_id}/tags")
+async def create_tags(doc_id: str, user_id: str):
+    result = generate_tags(doc_id, user_id)
+    return result
+
+
+@app.post("/api/insights/{user_id}")
+async def create_insights(user_id: str):
+    result = generate_insights(user_id)
+    return result
+
+
+@app.get("/api/insights/{user_id}")
+async def get_insights(user_id: str):
+    cached = store.get_insights(user_id)
+    if cached:
+        return cached
+    return {"key_topics": [], "knowledge_gaps": [], "connections": [], "briefing": ""}
 
 
 # ─── Dashboard ──────────────────────────────────────────────────────────────

@@ -69,4 +69,45 @@ export const api = {
     request<{ documents: number; queries: number; sessions: number; recent_activity: any[] }>(
       `/dashboard/${userId}`,
     ),
+
+  // ─── AI Features ───────────────────────────────────────────────────
+
+  summarize: (userId: string, docId: string) =>
+    request<{ doc_id: string; summary: string; key_points: string[]; topics: string[]; tldr: string; tags?: string[]; category?: string }>(
+      `/documents/${docId}/summarize?user_id=${encodeURIComponent(userId)}`,
+      { method: "POST" },
+    ),
+
+  getSummary: (docId: string) =>
+    request<{ summary: string; key_points: string[]; topics: string[]; tldr: string }>(
+      `/documents/${docId}/summary`,
+    ),
+
+  generateQuiz: (userId: string, docId: string) =>
+    request<{ doc_id: string; questions: any[] }>(
+      `/documents/${docId}/quiz?user_id=${encodeURIComponent(userId)}`,
+      { method: "POST" },
+    ),
+
+  getQuiz: (docId: string) =>
+    request<{ doc_id: string; questions: any[] }>(
+      `/documents/${docId}/quiz`,
+    ),
+
+  generateTags: (userId: string, docId: string) =>
+    request<{ doc_id: string; tags: string[]; category: string }>(
+      `/documents/${docId}/tags?user_id=${encodeURIComponent(userId)}`,
+      { method: "POST" },
+    ),
+
+  generateInsights: (userId: string) =>
+    request<{ key_topics: string[]; knowledge_gaps: string[]; connections: any[]; briefing: string }>(
+      `/insights/${userId}`,
+      { method: "POST" },
+    ),
+
+  getInsights: (userId: string) =>
+    request<{ key_topics: string[]; knowledge_gaps: string[]; connections: any[]; briefing: string }>(
+      `/insights/${userId}`,
+    ),
 };

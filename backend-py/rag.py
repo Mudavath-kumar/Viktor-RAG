@@ -165,3 +165,250 @@ def generate_answer(user_id: str, query: str, session_id: str) -> str:
         answer += "\n\n**Sources:** " + ", ".join(f"`{d}`" for d in unique_docs)
 
     return answer
+
+
+# ─── AI Feature Functions ──────────────────────────────────────────────
+
+def generate_summary(doc_id: str, user_id: str) -> dict:
+    """Generate a structured AI summary for a document."""
+    groq = get_groq()
+    chunks = store.get_chunks(doc_id)
+    if not chunks:
+        return {"summary": "No content found.", "key_points": [], "topics": [], "tldr": "No content."}
+
+    # Take up to first 15 chunks to stay within context limits
+    text = "\n\n".join(c["content"] for c in chunks[:15])
+
+    completion = groq.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a document analysis AI. Given document content, produce a JSON object with:\n"
+                    '- "summary": a 3-5 sentence overview\n'
+                    '- "key_points": array of 4-6 key takeaways (strings)\n'
+                    '- "topics": array of 3-5 main topics covered (strings)\n'
+                    '- "tldr": a single sentence TL;DR\n'
+                    "Return ONLY valid JSON, no markdown, no code fences."
+                ),
+            },
+            {"role": "user", "content": f"Document content:\n\n{text}"},
+        ],
+        max_tokens=800,
+    )
+
+    raw = completion.choices[0].message.content or "{}"
+    # Strip markdown fences if present
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+    if raw.endswith("```"):
+        raw = raw.rsplit("```", 1)[0]
+    raw = raw.strip()
+
+    import json as _json
+    try:
+        result = _json.loads(raw)
+    except Exception:
+        result = {"summary": raw, "key_points": [], "topics": [], "tldr": raw[:200]}
+
+    summary_data = {
+        "doc_id": doc_id,
+        "summary": result.get("summary", ""),
+        "key_points": result.get("key_points", []),
+        "topics": result.get("topics", []),
+        "tldr": result.get("tldr", ""),
+    }
+    store.save_summary(doc_id, summary_data)
+
+    # Also auto-generate tags when summarizing
+    try:
+        tags_result = generate_tags(doc_id, user_id)
+        summary_data["tags"] = tags_result.get("tags", [])
+        summary_data["category"] = tags_result.get("category", "")
+    except Exception as e:
+        print(f"Auto-tag error: {e}")
+
+    return summary_data
+
+
+def generate_quiz(doc_id: str, user_id: str) -> dict:
+    """Generate quiz questions from a document."""
+    groq = get_groq()
+    chunks = store.get_chunks(doc_id)
+    if not chunks:
+        return {"doc_id": doc_id, "questions": []}
+
+    text = "\n\n".join(c["content"] for c in chunks[:12])
+
+    completion = groq.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a quiz generator AI. Given document content, create exactly 5 multiple-choice questions.\n"
+                    "Return a JSON object with a single key \"questions\" containing an array of objects, each with:\n"
+                    '- "question": the question text\n'
+                    '- "options": array of exactly 4 answer strings\n'
+                    '- "correct": index (0-3) of the correct answer\n'
+                    '- "explanation": brief explanation of why the answer is correct\n'
+                    "Return ONLY valid JSON, no markdown, no code fences."
+                ),
+            },
+            {"role": "user", "content": f"Create quiz from this document:\n\n{text}"},
+        ],
+        max_tokens=1500,
+    )
+
+    raw = completion.choices[0].message.content or "{}"
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+    if raw.endswith("```"):
+        raw = raw.rsplit("```", 1)[0]
+    raw = raw.strip()
+
+    import json as _json
+    try:
+        result = _json.loads(raw)
+    except Exception:
+        result = {"questions": []}
+
+    quiz_data = {
+        "doc_id": doc_id,
+        "questions": result.get("questions", []),
+    }
+    store.save_quiz(doc_id, quiz_data)
+    return quiz_data
+
+
+def generate_tags(doc_id: str, user_id: str) -> dict:
+    """Auto-classify and tag a document."""
+    groq = get_groq()
+    chunks = store.get_chunks(doc_id)
+    if not chunks:
+        return {"doc_id": doc_id, "tags": [], "category": "Uncategorized"}
+
+    text = "\n\n".join(c["content"] for c in chunks[:8])
+
+    completion = groq.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a document classifier AI. Analyze the content and return a JSON object with:\n"
+                    '- "tags": array of 3-6 descriptive tags (e.g., "Machine Learning", "Finance", "Legal", "Tutorial")\n'
+                    '- "category": a single primary category (e.g., "Technology", "Business", "Science", "Education", "Legal")\n'
+                    "Return ONLY valid JSON, no markdown, no code fences."
+                ),
+            },
+            {"role": "user", "content": f"Classify this document:\n\n{text[:3000]}"},
+        ],
+        max_tokens=300,
+    )
+
+    raw = completion.choices[0].message.content or "{}"
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+    if raw.endswith("```"):
+        raw = raw.rsplit("```", 1)[0]
+    raw = raw.strip()
+
+    import json as _json
+    try:
+        result = _json.loads(raw)
+    except Exception:
+        result = {"tags": ["Document"], "category": "General"}
+
+    tags = result.get("tags", ["Document"])
+    category = result.get("category", "General")
+
+    store.update_document_tags(user_id, doc_id, tags, category)
+    return {"doc_id": doc_id, "tags": tags, "category": category}
+
+
+def generate_insights(user_id: str) -> dict:
+    """Generate AI insights across all user documents."""
+    groq = get_groq()
+    docs = store.get_documents(user_id)
+    if not docs:
+        return {
+            "key_topics": [],
+            "knowledge_gaps": [],
+            "connections": [],
+            "briefing": "Upload some documents to generate insights.",
+        }
+
+    # Collect summaries of all docs
+    doc_summaries = []
+    for d in docs[:20]:  # Limit to 20 docs
+        summary = store.get_summary(d["id"])
+        if summary:
+            doc_summaries.append(f"Document '{d['name']}': {summary.get('tldr', '')}")
+        else:
+            chunks = store.get_chunks(d["id"])
+            if chunks:
+                preview = chunks[0]["content"][:200]
+                doc_summaries.append(f"Document '{d['name']}': {preview}")
+
+    if not doc_summaries:
+        return {
+            "key_topics": [],
+            "knowledge_gaps": [],
+            "connections": [],
+            "briefing": "No document content available for analysis.",
+        }
+
+    combined = "\n".join(doc_summaries)
+
+    completion = groq.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a knowledge base analyst. Given summaries of multiple documents, produce a JSON object with:\n"
+                    '- "key_topics": array of 5-8 main topics across all documents\n'
+                    '- "knowledge_gaps": array of 2-4 areas mentioned but not deeply covered\n'
+                    '- "connections": array of 2-4 objects, each with "docs" (array of doc names) and "theme" (shared topic)\n'
+                    '- "briefing": a 3-4 sentence natural language summary of the entire knowledge base\n'
+                    "Return ONLY valid JSON, no markdown, no code fences."
+                ),
+            },
+            {"role": "user", "content": f"Analyze this knowledge base:\n\n{combined}"},
+        ],
+        max_tokens=1000,
+    )
+
+    raw = completion.choices[0].message.content or "{}"
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+    if raw.endswith("```"):
+        raw = raw.rsplit("```", 1)[0]
+    raw = raw.strip()
+
+    import json as _json
+    try:
+        result = _json.loads(raw)
+    except Exception:
+        result = {
+            "key_topics": [],
+            "knowledge_gaps": [],
+            "connections": [],
+            "briefing": raw[:500],
+        }
+
+    insights = {
+        "key_topics": result.get("key_topics", []),
+        "knowledge_gaps": result.get("knowledge_gaps", []),
+        "connections": result.get("connections", []),
+        "briefing": result.get("briefing", ""),
+    }
+    store.save_insights(user_id, insights)
+    return insights
+

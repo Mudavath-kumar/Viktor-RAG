@@ -66,3 +66,38 @@ class DashboardResponse(BaseModel):
     queries: int
     sessions: int
     recent_activity: list
+
+
+# ─── AI Feature Models ──────────────────────────────────────────────────
+
+class SummaryResponse(BaseModel):
+    doc_id: str
+    summary: str
+    key_points: list
+    topics: list
+    tldr: str
+
+
+class QuizQuestion(BaseModel):
+    question: str
+    options: list
+    correct: int
+    explanation: str
+
+
+class QuizResponse(BaseModel):
+    doc_id: str
+    questions: list
+
+
+class TagsResponse(BaseModel):
+    doc_id: str
+    tags: list
+    category: str
+
+
+class InsightsResponse(BaseModel):
+    key_topics: list
+    knowledge_gaps: list
+    connections: list
+    briefing: str
